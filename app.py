@@ -2,8 +2,8 @@ import base64
 import hug
 import io
 
-from api.cifar.tf_serving_cifar_client import cifar_client
-from api.tvscript.tf_serving_tvscript_client import tvscript_client
+from api.cifar.client import cifar_client
+from api.tvscript.client import tvscript_client
 
 api = hug.API(__name__)
 api.http.add_middleware(hug.middleware.CORSMiddleware(api, max_age=10))
