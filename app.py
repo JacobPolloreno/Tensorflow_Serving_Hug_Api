@@ -52,10 +52,6 @@ def predict_tvscript(body):
     try:
         text = str(body['text'], 'utf-8')
 
-        for _ in range(80):
-            next_word = tvscript_client.make_prediction(text, 10.0)
-            text = ' '.join([text, next_word])
-
         # TOKEN LOOKUP
         token_dict = dict([
             ('--', '||dash||'), ('.', '||period||'), (',', '||comma||'),
@@ -66,8 +62,14 @@ def predict_tvscript(body):
         ])
 
         for key, token in token_dict.items():
+            text = text.replace(key, ' {} '.format(token))
+
+        for _ in range(80):
+            next_word = tvscript_client.make_prediction(text, 10.0)
+            text = ' '.join([text, next_word])
+
+        for key, token in token_dict.items():
             text = text.replace(' ' + token.lower(), key)
-        # text = text.replace('\n ', '\n')
         text = text.replace('( ', '(')
 
         return {'prediction_result': text}, 200

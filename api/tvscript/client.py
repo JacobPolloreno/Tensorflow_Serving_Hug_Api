@@ -6,7 +6,7 @@ from api.client_base import PredictService
 def tvscript_post_process(result):
     """Returns word
 
-    :param result
+    :param result from TF server
     :return: str
     """
     return str(result.outputs['labels'].string_val.pop(), 'utf-8')
