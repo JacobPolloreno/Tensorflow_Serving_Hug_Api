@@ -1,41 +1,64 @@
 import base64
 import hug
+import googleapiclient.discovery as discovery
 import io
 
-from api.cifar.client import cifar_client
-from api.tvscript.client import tvscript_client
+from PIL import Image
+from random import randint
 
 api = hug.API(__name__)
 api.http.add_middleware(hug.middleware.CORSMiddleware(api, max_age=10))
 
 # TODO(Add multiple image predicitons, batch?)
 
+_PROJECT = 'grounded-gizmo-187521'
+
 
 @hug.local()
 @hug.post()
 @hug.cli()
 def predict_cifar(body):
-    """Generate text from our bedtime stories model.
-
-    """
+    _MODEL = 'cifar10'
+    _VERSION = 'b1'
 
     try:
         # Assume that image is coming as byte string
-        image_file = body['image']
-        image_bytes = io.BytesIO(image_file)
+        image_bytes = body['image']
+        image = Image.open(io.BytesIO(image_bytes)).convert('RGB')
+        image = image.resize((32, 32), Image.BILINEAR)
+        resized_image = io.BytesIO()
+        image.save(resized_image, format='JPEG')
+        encoded_image = base64.b64encode(
+            resized_image.getvalue()).decode('utf-8')
+        instance = {'key': str(randint(1, 100)),
+                    'image_bytes': {'b64': encoded_image}}
     except Exception as e:
         return {'message': 'Error in input requests.' +
                 ' {}'.format(e)}, 400
 
+    # CREATE SERVICE
+    service = discovery.build('ml', 'v1')
+    name = f'projects/{_PROJECT}/models/{_MODEL}/versions/{_VERSION}'
+
     try:
-        results = cifar_client.make_prediction(image_bytes.getvalue())
-        results_json = [{'label': res[0],
-                         'prob': res[1]} for res in results]
-        img_64 = base64.b64encode(
-            image_bytes.getvalue()).decode()
-        # pred_label, _ = max(results, key=lambda r: r[1])
-        return {'src': img_64,
-                'prediction_result': results_json}, 200
+        response = service.projects().predict(
+            name=name,
+            body={'instances': [instance]}
+        ).execute()
+
+        if 'error' in response:
+            return {'message': response['error']}, 500
+
+        results = response['predictions'].pop()
+        prediction_result = []
+        for label, prob in zip(results['classes'],
+                               results['scores']):
+
+            prediction_result.append({
+                'label': label,
+                'prob': prob})
+
+        return {'prediction_result': prediction_result}, 200
     except Exception as e:
         return {'message': 'Internal error.' +
                 ' {}'.format(e)}, 500
@@ -76,6 +99,7 @@ def predict_tvscript(body):
     except Exception as e:
         return {'message': 'Internal error.' +
                 ' {}'.format(e)}, 500
+
 
 if __name__ == '__main__':
     predict_cifar.interface.cli()
