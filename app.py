@@ -1,13 +1,16 @@
+#!/bin/python3
 import base64
 import hug
 import googleapiclient.discovery as discovery
 import io
 
 from PIL import Image
+from falcon_require_https import RequireHTTPS
 from random import randint
 
 api = hug.API(__name__)
-api.http.add_middleware(hug.middleware.CORSMiddleware(api, max_age=10))
+#api.http.add_middleware(hug.middleware.CORSMiddleware(api, max_age=10))
+api.http.add_middleware(RequireHTTPS())
 
 # TODO(Add multiple image predicitons, batch?)
 
@@ -100,6 +103,16 @@ def predict_tvscript(body):
         return {'message': 'Internal error.' +
                 ' {}'.format(e)}, 500
 
+@hug.not_found()
+def not_found_handler():
+    return "Not Found"
+
+
+@hug.post('/search')
+def search_insight(body):
+   return {"results" : "This is a sentence"}
+
 
 if __name__ == '__main__':
-    predict_cifar.interface.cli()
+    #predict_cifar.interface.cli()
+    api.http.serve()
