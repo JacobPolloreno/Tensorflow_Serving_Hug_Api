@@ -3,21 +3,25 @@ import base64
 import hug
 import googleapiclient.discovery as discovery
 import io
+import os
 
 from PIL import Image
 from falcon_require_https import RequireHTTPS
 from random import randint
 
 api = hug.API(__name__)
-#api.http.add_middleware(hug.middleware.CORSMiddleware(api, max_age=10))
-api.http.add_middleware(RequireHTTPS())
+# api.http.add_middleware(RequireHTTPS())
 
-# TODO(Add multiple image predicitons, batch?)
 
 _PROJECT = 'grounded-gizmo-187521'
 
 
 @hug.local()
+@hug.not_found()
+def not_found_handler():
+    return "Not Found"
+
+
 @hug.post()
 @hug.cli()
 def predict_cifar(body):
@@ -69,50 +73,15 @@ def predict_cifar(body):
 
 @hug.local()
 @hug.post()
-@hug.cli()
-def predict_tvscript(body):
-    """Generate text from our bedtime stories model.
-
-    """
-
+def workbuddy(body):
     try:
-        text = str(body['text'], 'utf-8')
+        text = body['text']
 
-        # TOKEN LOOKUP
-        token_dict = dict([
-            ('--', '||dash||'), ('.', '||period||'), (',', '||comma||'),
-            ('"', '||quotation_mark||'), (';', '||semicolon||'),
-            ('!', '||exclamation_mark||'), ('?', '||question_mark||'),
-            ('(', '||left_parentheses||'), (')', '||right_parentheses||'),
-            ('\n', '||return||')
-        ])
-
-        for key, token in token_dict.items():
-            text = text.replace(key, ' {} '.format(token))
-
-        for _ in range(80):
-            next_word = tvscript_client.make_prediction(text, 10.0)
-            text = ' '.join([text, next_word])
-
-        for key, token in token_dict.items():
-            text = text.replace(' ' + token.lower(), key)
-        text = text.replace('( ', '(')
-
-        return {'prediction_result': text}, 200
+        return {'results': text}, 200
     except Exception as e:
         return {'message': 'Internal error.' +
                 ' {}'.format(e)}, 500
 
-@hug.not_found()
-def not_found_handler():
-    return "Not Found"
-
-
-@hug.post('/search')
-def search_insight(body):
-   return {"results" : "This is a sentence"}
-
 
 if __name__ == '__main__':
-    #predict_cifar.interface.cli()
     api.http.serve()
