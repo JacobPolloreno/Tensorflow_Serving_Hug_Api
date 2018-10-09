@@ -1,19 +1,80 @@
 #!/bin/python3
+import config
 import base64
 import hug
 import googleapiclient.discovery as discovery
 import io
+import logging
+import nmslib
+import numpy as np
 import os
+import sys
 
 from PIL import Image
 from falcon_require_https import RequireHTTPS
 from random import randint
+from matchzoo import engine
+
+logger = logging.getLogger(__name__)
+
+pkg_dir = os.path.join(config.WORKBUDDY_DIR, 'src')
+sys.path.append(pkg_dir)
+
+from officeanswers.preprocess import build_document_embeddings
+from officeanswers.model import get_inference_model
+from officeanswers.search import build_search_index
+from officeanswers.util import Config
 
 api = hug.API(__name__)
-# api.http.add_middleware(RequireHTTPS())
+api.http.add_middleware(RequireHTTPS())
 
 
 _PROJECT = 'grounded-gizmo-187521'
+
+logger.info("Build search index...")
+
+config_path = config.WORKBUDDY_CONFIG
+if not config_path or not os.path.exists(config_path):
+    raise IOError("Config file not or envionmental variable not set." +
+                  "Make sure OA_CONFIG is set to config file path" +
+                  f"Path supplied {config_path}")
+
+base_dir = config.WORKBUDDY_DIR
+
+config = Config()
+config.from_json_file(config_path)
+data_dir = os.path.join(base_dir, 'data')
+preprocess_dir = os.path.join(data_dir,
+                              'preprocessed')
+processed_dir = os.path.join(data_dir,
+                             'processed')
+config.paths['preprocess_dir'] = preprocess_dir
+config.paths['processed_dir'] = processed_dir
+
+embed_model = get_inference_model(config)
+if 'preprocess' in config.inputs['share']:
+    pre = engine.load_preprocessor(preprocess_dir,
+                                   config.inputs['share']['preprocess'])
+else:
+    pre = engine.load_preprocessor(preprocess_dir,
+                                   config.net_name)
+
+config.inputs['share']['custom_corpus'] = os.path.join(
+    base_dir,
+    config.inputs['share']['custom_corpus'])
+docs, embeds = build_document_embeddings(config)
+
+logger.info("Loading search index...")
+index_name = 'custom_index'
+if not os.path.exists(index_name):
+    logger.info("Search index not found. Building it...")
+    search_engine = build_search_index(embeds)
+    search_engine.saveIndex(index_name)
+else:
+    search_engine = nmslib.init(method='hnsw', space='cosinesimil')
+    search_engine.loadIndex(index_name)
+
+logger.info("Model ready to query.")
 
 
 @hug.local()
@@ -75,9 +136,25 @@ def predict_cifar(body):
 @hug.post()
 def workbuddy(body):
     try:
-        text = body['text']
+        text = str(body['text'], 'utf-8')
 
-        return {'results': text}, 200
+        sparse_input = pre.transform_list([text])[0]
+        sparse_input = np.expand_dims(sparse_input, axis=0)
+        dense_input = embed_model.predict(sparse_input)[0]
+
+        idxs, dists = search_engine.knnQuery(dense_input, k=3)
+        res = []
+        for idx, dist in zip(idxs, dists):
+            res.append((dist, docs[idx]))
+        res.sort(key=lambda x: x[0], reverse=True)
+
+        output = {}
+        for k, v in enumerate(res):
+            dist, doc = v
+            output[str(k)] = {'dist': str(dist), 'doc': doc}
+
+        return {'results': output}, 200
+
     except Exception as e:
         return {'message': 'Internal error.' +
                 ' {}'.format(e)}, 500
